@@ -1,0 +1,4 @@
+﻿  test.c
+f:\able_1209(2)\able_1209(2)\test.c(23): warning C4101: “b”: 未引用的局部变量
+  able_1209(2).vcxproj -> F:\able_1209(2)\Debug\able_1209(2).exe
+  able_1209(2).vcxproj -> F:\able_1209(2)\Debug\able_1209(2).pdb (Partial PDB)
