@@ -1,0 +1,10 @@
+﻿  test.c
+f:\走迷宫\副本\test.c(76): warning C4013: “kbhit”未定义；假设外部返回 int
+f:\走迷宫\副本\test.c(79): warning C4013: “getch”未定义；假设外部返回 int
+f:\走迷宫\副本\test.c(184): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+f:\走迷宫\副本\test.c(447): warning C4101: “j”: 未引用的局部变量
+f:\走迷宫\副本\test.c(447): warning C4101: “i”: 未引用的局部变量
+f:\走迷宫\副本\test.c(482): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+f:\走迷宫\副本\test.c(622): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+  副本.vcxproj -> F:\走迷宫\Debug\副本.exe
+  副本.vcxproj -> F:\走迷宫\Debug\副本.pdb (Partial PDB)
