@@ -1,0 +1,277 @@
+	.MODEL	TINY	
+EXTRN	Display8:NEAR,
+        GetKeyA:NEAR,
+        GetKeyB:NEAR
+
+IO8259_0	EQU	0F000H	
+IO8259_1	EQU	0F001H	
+Con_8253	EQU	0E003H	    ;8253 控制口地址（写控制字)
+T0_8253 	EQU	0E000H      ;TO_8253计时器地址
+
+	.STACK	200	堆栈段200字节
+	.DATA
+		
+halfsec 	DB	0	;半秒计数
+{
+Sec		DB	0	;秒
+Min		DB	0	;分
+hour		DB	0	;时 }
+
+                                                  
+buffer	DB	8 DUP(0)	;显示缓冲区，8个字节  （把0循环8次）；buffer用来放时分秒
+buffer1	DB	8 DUP(0)	;显示缓冲区，8个字节  ；设置时间时用  
+bNeedDisplay	DB	0	;需要刷新显示    ；逻辑类型只能取0或1，1代表刷新
+number	DB	0	        ;设置哪一位时间  ；设置时间时用 表示设置哪一位（0，1，3，4，6，7）
+bFlash	DB	0	        ;设置时间时是否需要刷新 （0，1）1代表刷新
+
+
+
+	.CODE	 
+	
+START:	MOV	AX,@DATA	
+	MOV	DS,AX	
+	MOV	ES,AX	   从buffer1中传送
+
+	NOP	            ;延时，等待下一个周期
+	
+	mov	sec,0		
+	mov	min,58	
+	mov	hour,23	    ;时分秒赋初值23:58:00
+
+
+	MOV		bNeedDisplay,1	;刷新显示时钟初始值
+
+	CALL		Init8253	;调用  Init8253（初始化8253）
+	CALL		Init8259	；调用  Init8259（初始化8259）
+	CALL		WriIntver	；写中断向量表   把首地址写入
+	STI                         ;使IF置1，允许可屏蔽中断，中断到来转而处理中断
+
+；主程序一直处于循环，没有退出，是按实验板上的cpu芯片决定的,而实验板是裸机，没有操作系统，无法调用int 21功能
+
+		
+MAIN:	CALL	GetKeyA	      ;按键扫描   等待用户从键盘输入
+	JNB	Main1	      ；判断是否按键
+	CMP	AL,0FH	      ;设置时间与0F（实验板右下角的键）比较是否相同
+	JNZ		Main1	
+	CALL	SetTime	
+Main1:	CMP		bNeedDisplay,0	    
+	JZ	MAIN	                      ；如果不显示继续循环
+	CALL	Display_LED	              ;显示时分秒
+	MOV	bNeedDisplay,0	              ;1s定时到刷新转速
+Main2:	JMP		MAIN	              ;循环进行实验内容介绍与测速功能测试
+
+
+SetTime	PROC	NEAR	
+	LEA		SI,buffer1	
+	CALL	TimeToBuffer	
+	MOV	Number,0	
+Key:		CMP	bFlash,0	
+	JZ	Key2	
+	LEA		SI,buffer1	
+	LEA		DI,buffer	
+	MOV	CX,8	
+	REP	MOVSB	
+	CMP	halfsec,0	
+	JNZ	FLASH	
+	MOV		BL,number	
+	NOT	BL	
+	AND	BX,07H	
+	LEA		SI,buffer	
+	MOV	BYTE PTR [SI+BX],10H	;当前设置位置产生闪烁效果
+FLASH:	LEA	SI,buffer	
+	CALL		Display8	
+	MOV	bFlash,0	
+Key2:	CALL	GetKeyA	
+	JNB	Key	
+	CMP		AL,0EH	;放弃设置
+	JNZ	Key1	
+	JMP		Exit	
+Key1:	CMP	AL,0FH	
+	JZ	SetTime8	
+SetTime1:	CMP	AL,10	
+	JNB	Key		;无效按键
+	CMP	number,0	
+	JNZ		SetTime2	
+	CMP	AL,3		;调整时的十位数
+	JNB	Key	
+	MOV		buffer1 + 7,AL	
+	JMP	SetTime7	
+SetTime2:	CMP		number,1	
+	JNZ		SetTime3	
+	CMP	buffer1 + 7,1	;调整时的个位数
+	JZ	SetTime2_1	
+	CMP	AL,4	
+	JNB	Key	
+SetTime2_1:	MOV		buffer1 + 6,AL	
+	INC	number	
+	JMP	SetTime7	
+SetTime3:	CMP	number,3	
+	JNZ	SetTime4	
+	CMP	AL,6		;调整分的十位数
+	JNB	Key	
+	MOV	buffer1 + 4,AL	
+	JMP		SetTime7		
+SetTime4:	CMP		number,4	
+	JNZ	SetTime5	
+	MOV		buffer1 + 3,AL	;调整分的个位数
+	INC	number	
+	JMP		SetTime7	
+SetTime5:	CMP	number,6	
+	JNZ	SetTime6	
+	CMP	AL,6		;调整秒的十位数
+	JB	SetTime5_1	
+	JMP	Key	
+SetTime5_1:	MOV	buffer1 + 1,AL	
+	JMP	SetTime7	
+SetTime6:	MOV		buffer1,AL	;调整秒的个位数
+SetTime7:	INC	number	
+	CMP		number,8	
+	JNB	SetTime8	
+	MOV	bFlash,1	;需要刷新
+	JMP		Key		
+SetTime8:	MOV		AL,buffer1 + 1	;确认
+	MOV		BL,10	
+	MUL	BL	
+	ADD	AL,buffer1	
+	MOV		sec,AL		;秒
+	MOV	AL,buffer1 + 4	
+	MUL	BL	
+	ADD	AL,buffer1 + 3	
+	MOV	min,AL	;分
+	MOV	AL,buffer1 + 7	
+	MUL	BL	
+	ADD	AL,buffer1 + 6	
+	MOV	hour,AL	;时
+	JMP		Exit	
+Exit:	RET		
+SetTime		ENDP	
+
+	
+;hour min sec转化成可显示格式
+TimeToBuffer	PROC	NEAR	
+	MOV	AL,sec	
+	XOR	AH,AH	                 ;给AH清零
+	MOV	BL,10	
+	DIV	BL	
+	MOV	[SI],AH	                 ；把余数AH放入SI
+	MOV	[SI + 1],AL	         ;秒
+	MOV	BYTE PTR [SI + 2],10H	;10H不显示
+	MOV	AL,min	
+	XOR	AH,AH	
+	DIV	BL	
+	MOV	[SI + 3],AH	
+	MOV		[SI + 4],AL		;分
+	MOV	BYTE PTR [SI + 5],10H  	;10H不显示
+	MOV		AL,hour	
+	XOR		AH,AH	
+	DIV	BL	
+	MOV		[SI + 6],AH		
+	MOV	[SI + 7],AL	;时
+	RET		
+TimeToBuffer	ENDP
+		
+;显示时分秒
+Display_LED	PROC	NEAR	
+
+	LEA		SI,buffer	；SI指向BUFFER的首地址
+	CALL	TimeToBuffer	        ；把当前时间一位一位写入到BUFFER中
+
+	LEA		SI,buffer	；SI指向BUFFER的首地址
+	CALL	Display8		；直接调用display8 
+
+	RET		
+Display_LED		ENDP
+
+		
+;0.5s产生一次中断
+；中
+
+Timer0Int:	PUSH		AX	
+	        PUSH		DX	；保护现场
+
+	MOV	bFlash,1	        ；一个半秒
+	INC	halfsec	
+	CMP	halfsec,2	        ；比较几个半秒
+	JNZ		Timer0Int1	；不等于2，直接time0int1
+	MOV	bNeedDisplay,1	        ；刷新
+	MOV		halfsec,0	；给半秒赋值0
+	INC	sec	                ；秒加1
+	CMP	sec,60	                ；与60比较
+	JNZ	Timer0Int1	        
+	MOV	sec,0	 
+	INC	min	                ；秒60时，给分加1
+	CMP		min,60	
+	JNZ	Timer0Int1	
+	MOV		min,0	
+	INC	hour	                ；分60时，给时加1
+	CMP	hour,24	                ；把时与23比较
+	JNZ		Timer0Int1	
+	MOV	hour,0	
+Timer0Int1:	MOV	DX,IO8259_0	
+	MOV	AL,20H	
+	OUT	DX,AL	
+{
+	POP	DX	  
+	POP	AX	}       ；恢复现场
+	IRET	                ；中断处理子程序结束
+
+		
+Init8253	PROC		NEAR	
+	MOV	DX,Con_8253	       ；把8253的地址放入DX中
+	MOV	AL,34H	               ；00110100   00选计数器0。先读写低字节，后读写高字节。选择方式2（分频器）。二进制计数。
+	OUT	DX,AL	               ;计数器T0设置在模式2状态,HEX计数
+
+	MOV	DX,T0_8253	       ；8253计数器端口地址
+	MOV	AL,12H	               ；00010010   00选计数器0。 01对低字节读写。 001选择方式1（可编程单稳触发器）。 二进制计数
+	OUT	DX,AL
+	
+	MOV	AL,7AH	               ；01111010   01选计数器1。 11先读写低字节，后读写高字节。 选择方式5（硬件触发选通脉冲）。 二进制计数。
+	OUT	DX,AL	               ;CLK0=62.5kHz,0.5s定时
+
+	RET		
+Init8253		ENDP	
+
+	
+Init8259	PROC	NEAR	
+
+	MOV	        DX,IO8259_0	
+	MOV		AL,13H	      ；00010011    由A0=0,D3=D4=0得控制字格式为OCW2。 D7=0优先级非自动循环方式。 D6=0一般中断结束，L2~L0无效。
+                                                    D5=1使当前ISR中的对应位复位。 
+	OUT		DX,AL
+	
+
+	MOV		DX,IO8259_1	
+	MOV		AL,08H	     ；00001000    
+	OUT	        DX,AL
+	
+
+	MOV	        AL,09H	      ；00001001
+	OUT		DX,AL
+	
+	MOV	        AL,0FEH	      ；11111110
+	OUT		DX,AL	
+
+	RET		
+Init8259		ENDP
+
+		
+WriIntver	PROC	NEAR	
+	PUSH		ES	
+
+	MOV	        AX,0	
+	MOV		ES,AX	      ；给ES放0 
+	MOV		DI,20H	     ；00100000  8号中断的地址    偏移地址20H~21H                        
+
+
+	LEA	  AX, Timer0Int	     ；取中断处理有效地址放入
+	STOSW	                     ；存入串指令的字操作，用指定字符填充整个字符串或数组	
+
+
+	MOV	AX,CS	             ；代码段段基址放入中断向量表的22H~23H
+	STOSW		AX
+
+	POP		ES	
+	RET		
+WriIntver	ENDP		
+			
+	END	START	
